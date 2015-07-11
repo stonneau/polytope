@@ -20,10 +20,11 @@ typedef double value_type;
 //typedef Eigen::Matrix <value_type, 3, 3> rotation_t;
 //typedef Eigen::Matrix <value_type, 4, 4> transform_t;
 //typedef Eigen::Matrix <value_type, Eigen::Dynamic, Eigen::Dynamic> matrix_t;
-/*32 extreme points for cone (5 non constant points+ 0 ==> 2^5 +1)*/
+/*37 extreme points for cone (f_max constant) => 5 points which can take two non zero values (2⁵5)
++ 5 0 moment points ==> 2^5 +5)*/
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, 1> vector_t;
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, 4> T_transform_t;
-typedef Eigen::Matrix <value_type, 6, 33> contact_cone_v_t;
+typedef Eigen::Matrix <value_type, 6, 37> contact_cone_v_t;
 
 // defining references
 typedef const Eigen::Ref<const vector_t> EConstVector_t;

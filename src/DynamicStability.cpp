@@ -94,55 +94,53 @@ dd_MatrixPtr FromEigen (const matrix_td& input, dd_ErrorType *Error)
 contact_cone_v_t ComputePolytope(const value_type& x, const value_type& y,
                                  const value_type& f_z_max, const value_type& friction)
 {
-    contact_cone_v_t cone;
+    contact_cone_v_t cone = contact_cone_v_t::Zero();
     value_type nu_f_z, x_f_z, y_f_z;
     nu_f_z = f_z_max * friction;
     x_f_z =  x * f_z_max;
     y_f_z = y * f_z_max;
-    Eigen::Matrix <value_type, 5, 1> plus;
+    Eigen::Matrix <value_type, 6, 1> plus;
     plus[0] = nu_f_z;
-    plus[1] = nu_f_z;
-    plus[2] = y_f_z;
-    plus[3] = x_f_z;
-    plus[4] = nu_f_z;
+    plus[1] = nu_f_z; // 2 is f_z_max
+    plus[3] = y_f_z;
+    plus[4] = x_f_z;
+    plus[5] = nu_f_z;
 
-
-plus[0] = 1;
-plus[1] = 2;
-plus[2] = 3;
-plus[3] = 5;
-plus[4] = 6;
-
-
-    Eigen::Matrix <value_type, 5, 1> minus = - plus;
-    std::size_t numblocks =1;
-    std::size_t length = 16;
-    std::size_t rowid = 0;
-    for(std::size_t i =0; i<5; ++i)
+    Eigen::Matrix <value_type, 6, 1> minus = - plus;
+    std::size_t numblocks = 32;
+    std::size_t length = 1;
+    // generating linear combination of all non 0 points
+    // first row alternates positive and negative values
+    // second row switches signs every two columns
+    // last row switches signs after 16 colums
+    // this allows to generate all combinations
+    for(std::size_t rowid=0; rowid<6; ++rowid)
     {
-        for(std::size_t j =0; j< numblocks; ++j)
+        for(std::size_t j = 0; j< numblocks; j+=2)
         {
             for(std::size_t col = length*j; col < length*(j+1); ++col)
             {
-                cone(rowid,col) = plus(i);
+                cone(rowid,col) = plus(rowid);
             }
             for(std::size_t col = length*(j+1); col < length*(j+2); ++col)
             {
-                cone(rowid,col) = minus(i);
+                cone(rowid,col) = minus(rowid);
             }
         }
-        rowid = (rowid==4) ? 6 : rowid +1;
-        numblocks *= 2;
-        length /= 2;
+        numblocks /= 2;
+        length *= 2;
+        if(rowid == 1) ++rowid;
     }
-    for(std::size_t i =0; i<32;++i)
+    //setting normal force contact
+    for(std::size_t i=0; i<33; ++i)
     {
-        cone(4,32)=f_z_max;
+        cone(2,i)=f_z_max;
     }
+    // adding non null forces with 0 moment
+    cone.block<3,4>(0,33) = cone.block<3,4>(0,0);
     for(std::size_t i =0; i<6;++i)
     {
-        cone(i,32)=0;
-cone(i,32)=7;
+        cone(i,32)=0.;
     }
     return cone;
 }
@@ -461,7 +459,7 @@ using namespace equilib;
 
 int main()
 {
-    contact_cone_v_t cone =  ComputePolytope(2, 4,4, 0.5);
+    contact_cone_v_t cone =  ComputePolytope(2, 4,8, 0.5);
     std::cout << cone << std::endl;
     return 0;
 }
