@@ -14,10 +14,11 @@ using namespace std;
 namespace equilib
 {
 
+typedef Eigen::Matrix <value_type, 6, 1> vector6_t;
 typedef Eigen::Matrix <value_type, 3, 3> rotation_t;
 typedef Eigen::Matrix <value_type, 4, 4> transform_t;
 
-
+typedef Eigen::Triplet<value_type> T;
 
 const vector3_t X(1,0,0);
 const vector3_t Y(0,1,0);
@@ -32,11 +33,12 @@ rotation_t skew(cref_vector3_t& x)
     return res;
 }
 
-matrix_t gicw_projection(cref_T_transform_t contacts)
+// TODO TEST faster with sparse matrix despite init ?
+
+matrix_t A_stance(cref_T_transform_t contacts)
 {
     int nbContacts = contacts.rows() / 4;
     assert(contacts.rows() %4 == 0);
-    // TODO TEST faster with sparse matrix despite init ?
     //Eigen::SparseMatrix<value_type> mat(nbContacts*6,nbContacts*6);
     //reserve non zero values
     //mat.reserve(ReserveSparse());
@@ -45,21 +47,22 @@ matrix_t gicw_projection(cref_T_transform_t contacts)
     {
         const rotation_t mRi = -contacts.block<3,3>(4*i,0);
         mat.block(i*6,i*6,3,3) = mRi;
-        mat.block(i*6,i*6+3,3,3) = mRi;
+        mat.block(i*6+3,i*6+3,3,3) = mRi;
         mat.block(i*6+3,i*6,3,3) = skew(contacts.block<3,1>(4*i,3)) *mRi;
     }
     //mat.makeCompressed();
     return mat;
 }
 
-matrix_t friction_polytopes(cref_vector_t friction, cref_vector_t f_z_max,
+matrix_t V_all(cref_vector_t friction, cref_vector_t f_z_max,
                      cref_vector_t x, cref_vector_t y )
 {
     const int nbContacts = x.rows();
     assert(y.rows() == nbContacts && f_z_max.rows() == nbContacts &&
            friction.rows() == nbContacts);
-    matrix_t cones = matrix_t::Zero(6*nbContacts, 37);
-    for(int contact = 0; contact < nbContacts; ++contact)
+    matrix_t cones = matrix_t::Zero(6*nbContacts, 37*nbContacts);
+    int colid = 0;
+    for(int contact = 0; contact < nbContacts; ++contact, colid += 37)
     {
         const value_type& f_z_max_c = f_z_max[contact];
         const value_type nu_f_z = f_z_max_c * friction[contact];
@@ -87,11 +90,11 @@ matrix_t friction_polytopes(cref_vector_t friction, cref_vector_t f_z_max,
             {
                 for(std::size_t col = length*j; col < length*(j+1); ++col)
                 {
-                    cones(rowid,col) = plus(rowid%6);
+                    cones(rowid,colid+col) = plus(rowid%6);
                 }
                 for(std::size_t col = length*(j+1); col < length*(j+2); ++col)
                 {
-                    cones(rowid,col) = minus(rowid%6);
+                    cones(rowid,colid+col) = minus(rowid%6);
                 }
             }
             if(rowid % 6 != 1)
@@ -101,7 +104,7 @@ matrix_t friction_polytopes(cref_vector_t friction, cref_vector_t f_z_max,
             }
         }
         // adding non null forces with 0 moment
-        cones.block<3,4>(6*contact,33) = cones.block<3,4>(6*contact,0);
+        cones.block<3,4>(6*contact,33 + colid) = cones.block<3,4>(6*contact, colid);
     }
     return cones;
 }
@@ -111,7 +114,7 @@ void init_library()
     dd_set_global_constants();
 }
 
-dd_MatrixPtr FromEigen (const cref_matrix_t& input)
+/*dd_MatrixPtr FromEigen (const cref_matrix_t& input)
 {
     dd_MatrixPtr M=NULL;
     dd_rowrange i;
@@ -134,7 +137,44 @@ dd_MatrixPtr FromEigen (const cref_matrix_t& input)
         for (j = 2; j <= d_input; j++)
         {
           dd_set_d(value, input(i-1,j-2));
-          dd_set(M->matrix[i-1][j - 1],value);
+          dd_set(M->matrix[i-1][j-1],value);
+        }
+    }
+  dd_clear(value);
+  return M;
+}*/
+
+// need to transpose matrix...
+dd_MatrixPtr FromEigen (const cref_matrix_t& input)
+{
+    int nbContacts = input.cols() / 6;
+    dd_MatrixPtr M=NULL;
+    dd_rowrange i;
+    dd_colrange j;
+    dd_rowrange m_input = (dd_rowrange)(input.rows());
+    dd_colrange d_input = (dd_colrange)(7);
+    dd_RepresentationType rep=dd_Generator;
+    mytype value;
+    dd_NumberType NT = dd_Real;;
+    dd_init(value);
+
+    M=dd_CreateMatrix(m_input, d_input);
+    M->representation=rep;
+    M->numbtype=NT;
+
+    int rowOffset = 0; int colOffset = 0;
+    for(int contact = 0; contact < nbContacts;
+        ++contact, rowOffset+=37, colOffset+=6)
+    {
+        for (i = 1; i <= 37; i++)
+        {
+            dd_set_d(value, 1);
+            dd_set(M->matrix[rowOffset+i-1][0],value);
+            for (j = 2; j <= d_input; j++)
+            {
+              dd_set_d(value, input(rowOffset+i-1,colOffset+j-2));
+              dd_set(M->matrix[rowOffset+i-1][j-1],value);
+            }
         }
     }
   dd_clear(value);
@@ -143,33 +183,89 @@ dd_MatrixPtr FromEigen (const cref_matrix_t& input)
 
 struct PImpl
 {
-    PImpl(const dd_MatrixPtr V, const dd_MatrixPtr A, const dd_MatrixPtr b)
-        : V_(V), A_(A), b_(b) {}
-    ~PImpl() {delete V_; delete A_; delete b_;}
+    PImpl(const dd_MatrixPtr V, const dd_PolyhedraPtr H)
+        : V_(V), H_(H), hComputed_(false)
+    {
+        b_A = dd_CopyInequalities(H_);
+        A = matrix_t ((int)b_A->rowsize, (int)b_A->colsize-1);
+        b = vector_t ((int)b_A->rowsize);
+        for(int i=0; i < b_A->rowsize; ++i)
+        {
+            b(i) = (double)(*(b_A->matrix[i][0]));
+            for(int j=1; j < b_A->colsize; ++j)
+            {
+                A(i, j-1) = -(double)(*(b_A->matrix[i][j]));
+            }
+        }
+    }
+    ~PImpl()
+    {
+        dd_FreeMatrix(V_); dd_FreePolyhedra(H_); dd_FreeMatrix(b_A);
+    }
+
+    bool IsValid(const vector6_t& wrench)
+    {
+        matrix_t res = A * wrench - b;
+        for(int i =0; i< res.rows(); ++i)
+        {
+            if(res(i) > 0)
+            {
+                std::cout << "invalid " << res << std::endl;
+                 return false;
+            }
+        }
+        return true;
+    }
 
     // V representation of polytope
-    const dd_MatrixPtr V_;
+    dd_MatrixPtr V_;
     // H representation of polytope
-    const dd_MatrixPtr A_;
-    const dd_MatrixPtr b_;
+    dd_MatrixPtr b_A;
+    dd_PolyhedraPtr H_;
+    matrix_t A;
+    matrix_t b;
+    bool hComputed_;
 };
 
 ProjectedCone::ProjectedCone(cref_matrix_t vRepresentation)
-    : pImpl_(new PImpl(FromEigen(vRepresentation),
-                       FromEigen(vRepresentation), FromEigen(vRepresentation)))
 {
-    throw "TODO PROJ CONST";
+    dd_ErrorType error = dd_NoError;
+    dd_MatrixPtr Vpc = FromEigen(vRepresentation);
+    dd_PolyhedraPtr H = dd_DDMatrix2Poly(Vpc, &error);
+    if(error != dd_NoError)
+    {
+        std::cout << "numerical inst " << std::endl;
+    }
+    pImpl_.reset(new PImpl(Vpc, H));
 }
 
 bool ProjectedCone::IsValid(cref_vector3_t p_com, const cref_vector3_t& gravity, const value_type& mass) const
 {
-    throw "TODO IsValid";
+    vector6_t wrench;
+    wrench.block<3,1>(0,0)= p_com;
+    wrench.block<3,1>(3,0)= (mass * p_com).cross(gravity);
+    return pImpl_->IsValid(wrench);
 }
 
-const matrix_t& ProjectedCone::HRepresentation()
+matrix_t ProjectedCone::HRepresentation() const
 {
-    throw "TODO HREP";
+    matrix_t res(pImpl_->A.rows(), pImpl_->A.cols()+1);
+    res.block(0,0,pImpl_->A.rows(),pImpl_->A.cols()) = pImpl_->A;
+    res.block(0,pImpl_->A.cols(),pImpl_->A.rows(),1) = pImpl_->b;
+    return res;
 }
+
+ProjectedCone* U_stance(cref_T_transform_t contacts,
+                                     cref_vector_t friction,cref_vector_t f_z_max,
+                                     cref_vector_t x, cref_vector_t y)
+{
+
+    matrix_t projection = A_stance(contacts) *  V_all(friction, f_z_max, x, y);
+    return new ProjectedCone(projection.transpose());
+}
+
+
+//dd_MatrixPtr Hc = dd_CopyInequalities(polyH);
 
 /*
 dd_MatrixPtr FromEigen (const matrix_t& b, const matrix_t& input, dd_ErrorType *Error)

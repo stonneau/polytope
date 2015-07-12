@@ -11,6 +11,7 @@
 
 #include <vector>
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <Eigen/src/Core/util/Macros.h>
 #include <memory>
 
@@ -29,17 +30,20 @@ typedef Eigen::Matrix <value_type, 3, 1> vector3_t;
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, 1> vector_t;
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, 4> T_transform_t;
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, Eigen::Dynamic> matrix_t;
+typedef Eigen::SparseMatrix<value_type> smatrix_t;
 
 //define Eigen ref if available
-#if EIGEN_VERSION_AT_LEAST(4,2,0)
+#if EIGEN_VERSION_AT_LEAST(3,2,0)
 typedef const Eigen::Ref<const vector_t>& cref_vector_t;
 typedef const Eigen::Ref<const vector3_t>& cref_vector3_t;
 typedef const Eigen::Ref<const matrix_t>& cref_matrix_t;
+typedef const Eigen::Ref<const smatrix_t>& cref_smatrix_t;
 typedef const Eigen::Ref<const T_transform_t>& cref_T_transform_t;
 #else
 typedef const vector_t& cref_vector_t;
 typedef const vector3_t& cref_vector3_t;
 typedef const matrix_t& cref_matrix_t;
+typedef const smatrix_t& cref_smatrix_t;
 typedef const T_transform_t& cref_T_transform_t;
 #endif
 
@@ -55,29 +59,32 @@ struct ProjectedCone
 {
     // generate H and V representation in target
     // library format
-    ProjectedCone(cref_matrix_t vRepresentation);
+    explicit ProjectedCone(cref_matrix_t vRepresentation);
     // wether the current wrench is achievable (static equilibirum test)
     bool IsValid(cref_vector3_t p_com, const cref_vector3_t& gravity, const value_type& mass) const;
     // matrix is copied from target lib H representation
     // to Eigen on first call.
-    const matrix_t& HRepresentation();
+    // form is Ax - b <= 0
+    // ie first 6 cols describe A, and the last one b
+    matrix_t HRepresentation() const;
 private:
     std::auto_ptr<PImpl> pImpl_;
 };
 
-ProjectedCone admissible_wrench_cone(cref_T_transform_t contacts,
+ProjectedCone* U_stance(cref_T_transform_t contacts,
                                      cref_vector_t friction,cref_vector_t f_z_max,
                                      cref_vector_t x, cref_vector_t y);
 
 
+// TODO Sparse matrix for v_all and a_stance
 /*compute V representation analiticaly for a a given set of contacts
 assumes contact is rectangle, x and y describe half length of rectangle sides*/
-matrix_t friction_polytopes (cref_vector_t friction,
-                     cref_vector_t f_z_max, cref_vector_t x,
-                     cref_vector_t y);
+matrix_t V_all (cref_vector_t friction,
+                cref_vector_t f_z_max, cref_vector_t x,
+                cref_vector_t y);
 
 
 /*compute projection matrices into GICW*/
-matrix_t gicw_projection(cref_T_transform_t contacts);
+matrix_t A_stance(cref_T_transform_t contacts);
 } //namespace planner
 #endif //equilib
