@@ -1,7 +1,11 @@
-#include "DynamicStability.h"
+#include "polytope/DynamicStability.h"
 
-#include "libcdd/setoper.h"
-#include "libcdd/cdd.h"
+#include "cddmp.h"
+#include "setoper.h"
+#include "cddtypes.h"
+#include "cdd.h"
+
+#include <Eigen/Sparse>
 
 #include <vector>
 #include <iostream>
@@ -9,12 +13,17 @@
 using namespace std;
 namespace equilib
 {
-/*
+
+typedef Eigen::Matrix <value_type, 3, 3> rotation_t;
+typedef Eigen::Matrix <value_type, 4, 4> transform_t;
+
+
+
 const vector3_t X(1,0,0);
 const vector3_t Y(0,1,0);
 const vector3_t Z(0,0,1);
 
-rotation_t skew(const vector3_t& x)
+rotation_t skew(cref_vector3_t& x)
 {
     rotation_t res = rotation_t::Zero();
     res(0,1) = - x(2); res(0,2) =   x(1);
@@ -22,7 +31,147 @@ rotation_t skew(const vector3_t& x)
     res(2,0) = - x(1); res(2,1) =   x(0);
     return res;
 }
-*//*
+
+matrix_t gicw_projection(cref_T_transform_t contacts)
+{
+    int nbContacts = contacts.rows() / 4;
+    assert(contacts.rows() %4 == 0);
+    // TODO TEST faster with sparse matrix despite init ?
+    //Eigen::SparseMatrix<value_type> mat(nbContacts*6,nbContacts*6);
+    //reserve non zero values
+    //mat.reserve(ReserveSparse());
+    matrix_t mat(nbContacts*6, nbContacts*6);
+    for(int i = 0; i< nbContacts; ++i)
+    {
+        const rotation_t mRi = -contacts.block<3,3>(4*i,0);
+        mat.block(i*6,i*6,3,3) = mRi;
+        mat.block(i*6,i*6+3,3,3) = mRi;
+        mat.block(i*6+3,i*6,3,3) = skew(contacts.block<3,1>(4*i,3)) *mRi;
+    }
+    //mat.makeCompressed();
+    return mat;
+}
+
+matrix_t friction_polytopes(cref_vector_t friction, cref_vector_t f_z_max,
+                     cref_vector_t x, cref_vector_t y )
+{
+    const int nbContacts = x.rows();
+    assert(y.rows() == nbContacts && f_z_max.rows() == nbContacts &&
+           friction.rows() == nbContacts);
+    matrix_t cones = matrix_t::Zero(6*nbContacts, 37);
+    for(int contact = 0; contact < nbContacts; ++contact)
+    {
+        const value_type& f_z_max_c = f_z_max[contact];
+        const value_type nu_f_z = f_z_max_c * friction[contact];
+        const value_type x_f_z =  x[contact] * f_z_max_c;
+        const value_type y_f_z =  y[contact] * f_z_max_c;
+        Eigen::Matrix <value_type, 6, 1> plus;
+        plus[0] = nu_f_z;
+        plus[1] = nu_f_z;
+        plus[2] = f_z_max_c;
+        plus[3] = y_f_z;
+        plus[4] = x_f_z;
+        plus[5] = nu_f_z;
+
+        Eigen::Matrix <value_type, 6, 1> minus = - plus; minus[2] = f_z_max_c;
+        std::size_t numblocks = 32;
+        std::size_t length = 1;
+        // generating linear combination of all non 0 points
+        // first row alternates positive and negative values
+        // second row switches signs every two columns
+        // last row switches signs after 16 colums
+        // this allows to generate all combinations
+        for(int rowid=6*contact; rowid<6*contact+6; ++rowid)
+        {
+            for(std::size_t j = 0; j< numblocks; j+=2)
+            {
+                for(std::size_t col = length*j; col < length*(j+1); ++col)
+                {
+                    cones(rowid,col) = plus(rowid%6);
+                }
+                for(std::size_t col = length*(j+1); col < length*(j+2); ++col)
+                {
+                    cones(rowid,col) = minus(rowid%6);
+                }
+            }
+            if(rowid % 6 != 1)
+            {
+                numblocks /= 2;
+                length *= 2;
+            }
+        }
+        // adding non null forces with 0 moment
+        cones.block<3,4>(6*contact,33) = cones.block<3,4>(6*contact,0);
+    }
+    return cones;
+}
+
+void init_library()
+{
+    dd_set_global_constants();
+}
+
+dd_MatrixPtr FromEigen (const cref_matrix_t& input)
+{
+    dd_MatrixPtr M=NULL;
+    dd_rowrange i;
+    dd_colrange j;
+    dd_rowrange m_input = (dd_rowrange)(input.rows());
+    dd_colrange d_input = (dd_colrange)(input.cols() + 1);
+    dd_RepresentationType rep=dd_Generator;
+    mytype value;
+    dd_NumberType NT = dd_Real;;
+    dd_init(value);
+
+    M=dd_CreateMatrix(m_input, d_input);
+    M->representation=rep;
+    M->numbtype=NT;
+
+    for (i = 1; i <= m_input; i++)
+    {
+        dd_set_d(value, 1);
+        dd_set(M->matrix[i-1][0],value);
+        for (j = 2; j <= d_input; j++)
+        {
+          dd_set_d(value, input(i-1,j-2));
+          dd_set(M->matrix[i-1][j - 1],value);
+        }
+    }
+  dd_clear(value);
+  return M;
+}
+
+struct PImpl
+{
+    PImpl(const dd_MatrixPtr V, const dd_MatrixPtr A, const dd_MatrixPtr b)
+        : V_(V), A_(A), b_(b) {}
+    ~PImpl() {delete V_; delete A_; delete b_;}
+
+    // V representation of polytope
+    const dd_MatrixPtr V_;
+    // H representation of polytope
+    const dd_MatrixPtr A_;
+    const dd_MatrixPtr b_;
+};
+
+ProjectedCone::ProjectedCone(cref_matrix_t vRepresentation)
+    : pImpl_(new PImpl(FromEigen(vRepresentation),
+                       FromEigen(vRepresentation), FromEigen(vRepresentation)))
+{
+    throw "TODO PROJ CONST";
+}
+
+bool ProjectedCone::IsValid(cref_vector3_t p_com, const cref_vector3_t& gravity, const value_type& mass) const
+{
+    throw "TODO IsValid";
+}
+
+const matrix_t& ProjectedCone::HRepresentation()
+{
+    throw "TODO HREP";
+}
+
+/*
 dd_MatrixPtr FromEigen (const matrix_t& b, const matrix_t& input, dd_ErrorType *Error)
 {
     // b - Ax > 0
@@ -90,60 +239,6 @@ dd_MatrixPtr FromEigen (const matrix_td& input, dd_ErrorType *Error)
   dd_clear(value);
   return M;
 }*/
-
-contact_cone_v_t ComputePolytope(const value_type& x, const value_type& y,
-                                 const value_type& f_z_max, const value_type& friction)
-{
-    contact_cone_v_t cone = contact_cone_v_t::Zero();
-    value_type nu_f_z, x_f_z, y_f_z;
-    nu_f_z = f_z_max * friction;
-    x_f_z =  x * f_z_max;
-    y_f_z = y * f_z_max;
-    Eigen::Matrix <value_type, 6, 1> plus;
-    plus[0] = nu_f_z;
-    plus[1] = nu_f_z; // 2 is f_z_max
-    plus[3] = y_f_z;
-    plus[4] = x_f_z;
-    plus[5] = nu_f_z;
-
-    Eigen::Matrix <value_type, 6, 1> minus = - plus;
-    std::size_t numblocks = 32;
-    std::size_t length = 1;
-    // generating linear combination of all non 0 points
-    // first row alternates positive and negative values
-    // second row switches signs every two columns
-    // last row switches signs after 16 colums
-    // this allows to generate all combinations
-    for(std::size_t rowid=0; rowid<6; ++rowid)
-    {
-        for(std::size_t j = 0; j< numblocks; j+=2)
-        {
-            for(std::size_t col = length*j; col < length*(j+1); ++col)
-            {
-                cone(rowid,col) = plus(rowid);
-            }
-            for(std::size_t col = length*(j+1); col < length*(j+2); ++col)
-            {
-                cone(rowid,col) = minus(rowid);
-            }
-        }
-        numblocks /= 2;
-        length *= 2;
-        if(rowid == 1) ++rowid;
-    }
-    //setting normal force contact
-    for(std::size_t i=0; i<33; ++i)
-    {
-        cone(2,i)=f_z_max;
-    }
-    // adding non null forces with 0 moment
-    cone.block<3,4>(0,33) = cone.block<3,4>(0,0);
-    for(std::size_t i =0; i<6;++i)
-    {
-        cone(i,32)=0.;
-    }
-    return cone;
-}
 
 /*
 // human motions analysis and simulation based on a
@@ -451,15 +546,4 @@ double ResidualRadius(const T_Transform &contactTransforms, const T_Transform &g
 	}
 	return (h - H * W).minCoeff();
 }*/
-}
-
-using namespace equilib;
-
-#include <iostream>
-
-int main()
-{
-    contact_cone_v_t cone =  ComputePolytope(2, 4,8, 0.5);
-    std::cout << cone << std::endl;
-    return 0;
 }
