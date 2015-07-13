@@ -18,5 +18,5 @@ set(SOURCES
 
 add_executable(polytopetest ${SOURCES})
 
-TARGET_LINK_LIBRARIES(polytopetest polytope ${CDD_LIBRARY})
+TARGET_LINK_LIBRARIES(polytopetest polytope)
 #~ TARGET_LINK_LIBRARIES(polytopetest polytope ${SRC_DIR}/../external/cddlib-094b/lib-src/libcdd.a)

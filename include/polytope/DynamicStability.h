@@ -9,6 +9,8 @@
 #ifndef _STRUCT_TEST
 #define _STRUCT_TEST
 
+#include "polytope/config.h"
+
 #include <vector>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
@@ -51,40 +53,44 @@ typedef const T_transform_t& cref_T_transform_t;
 //must imperatively call this method to init polytope
 // library !!!!!!!!!!!!!!!
 void init_library();
+void release_library();
 
 // private implementation to
 // encapsulate target polytope library
 struct PImpl;
-struct ProjectedCone
+struct POLYTOPE_DLLAPI ProjectedCone
 {
     // generate H and V representation in target
     // library format
     explicit ProjectedCone(cref_matrix_t vRepresentation);
     // wether the current wrench is achievable (static equilibirum test)
-    bool IsValid(cref_vector3_t p_com, const cref_vector3_t& gravity, const value_type& mass) const;
-    // matrix is copied from target lib H representation
-    // to Eigen on first call.
-    // form is Ax - b <= 0
-    // ie first 6 cols describe A, and the last one b
-    matrix_t HRepresentation() const;
+    bool IsValid(cref_vector3_t p_com, const cref_vector3_t gravity, const value_type& mass) const;
+
 private:
-    std::auto_ptr<PImpl> pImpl_;
+    std::auto_ptr<const PImpl> pImpl_;
+
+public:
+    const matrix_t& A;
+    const vector_t& b;
 };
 
-ProjectedCone* U_stance(cref_T_transform_t contacts,
+const ProjectedCone* U_stance(cref_T_transform_t contacts,
                                      cref_vector_t friction,cref_vector_t f_z_max,
                                      cref_vector_t x, cref_vector_t y);
 
 
-// TODO Sparse matrix for v_all and a_stance
+// TODO test perfo for Sparse matrix for v_all and a_stance
 /*compute V representation analiticaly for a a given set of contacts
 assumes contact is rectangle, x and y describe half length of rectangle sides*/
 matrix_t V_all (cref_vector_t friction,
                 cref_vector_t f_z_max, cref_vector_t x,
                 cref_vector_t y);
 
+smatrix_t V_allsparse(cref_vector_t friction,
+                cref_vector_t f_z_max, cref_vector_t x,
+                cref_vector_t y);
 
 /*compute projection matrices into GICW*/
-matrix_t A_stance(cref_T_transform_t contacts);
+matrix_t POLYTOPE_DLLAPI A_stance(cref_T_transform_t contacts);
 } //namespace planner
 #endif //equilib

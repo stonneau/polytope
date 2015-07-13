@@ -14,11 +14,13 @@ endif ( MSVC )
 	
 set(SOURCES
     ${INCLUDE_DIR}/polytope/DynamicStability.h
+    ${INCLUDE_DIR}/polytope/config.h
     DynamicStability.cpp
 )
 
-add_library(polytope ${SOURCES})
+add_library(polytope SHARED ${SOURCES})
 
+TARGET_LINK_LIBRARIES(polytope ${CDD_LIBRARY})
 
 SET_TARGET_PROPERTIES(polytope PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 SET_TARGET_PROPERTIES(polytope PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
