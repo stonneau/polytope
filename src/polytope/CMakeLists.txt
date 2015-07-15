@@ -13,9 +13,9 @@ if ( MSVC )
 endif ( MSVC )
 	
 set(SOURCES
-    ${INCLUDE_DIR}/polytope/DynamicStability.h
     ${INCLUDE_DIR}/polytope/config.h
-    DynamicStability.cpp
+    ${INCLUDE_DIR}/polytope/stability_margin.h
+    stability_margin.cpp
 )
 
 add_library(polytope SHARED ${SOURCES})
