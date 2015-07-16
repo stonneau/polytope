@@ -20,7 +20,6 @@
 namespace polytope
 {
 //#define USE_FLOAT 1;
-// if C++ 11, can use template typedef instead
 #ifdef USE_FLOAT
 typedef float value_type;
 #else
@@ -28,19 +27,22 @@ typedef double value_type;
 #endif
 
 typedef Eigen::Matrix <value_type, 3, 1> vector3_t;
+typedef Eigen::Matrix <value_type, 3, 3> rotation_t;
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, 1> vector_t;
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, 3> T_rotation_t;
 typedef Eigen::Matrix <value_type, Eigen::Dynamic, Eigen::Dynamic> matrix_t;
-typedef Eigen::SparseMatrix<value_type> smatrix_t;
+//typedef Eigen::SparseMatrix<value_type> smatrix_t;
 
 //define Eigen ref if available
 #if EIGEN_VERSION_AT_LEAST(3,2,0)
 typedef const Eigen::Ref<const vector_t>    & cref_vector_t;
+typedef const Eigen::Ref<const rotation_t>  & cref_rotation_t;
 typedef const Eigen::Ref<const matrix_t>    & cref_matrix_t;
 typedef const Eigen::Ref<const vector3_t>   & cref_vector3_t;
 typedef const Eigen::Ref<const T_rotation_t>& cref_T_rotation_t;
 #else
 typedef const vector_t    & cref_vector_t;
+typedef const rotation_t  & cref_rotation_tt;
 typedef const matrix_t    & cref_matrix_t;
 typedef const vector3_t   & cref_vector3_t;
 typedef const T_rotation_t& cref_T_rotation_t;
@@ -66,6 +68,7 @@ private:
     std::auto_ptr<const PImpl> pImpl_;
 
 public:
+    const matrix_t& V;
     const matrix_t& A;
     const vector_t& b;
 
@@ -86,11 +89,7 @@ For each contact we have 37 extreme points by cone:
 + 5 0 moment points ==> 2^5 +5). Matrices are stacked diagonaly, which
 gives us a sparse matrix of size 6*nbContacts X 37*nbContacts */
 matrix_t V_all (cref_vector_t friction,
-                cref_vector_t f_z_max, cref_vector_t x,
-                cref_vector_t y);
-
-smatrix_t V_allSparse (cref_vector_t friction,
-                cref_vector_t f_z_max, cref_vector_t x,
+                cref_vector_t x,
                 cref_vector_t y);
 
 /*compute projection matrices into GICW. Positional factors of contact wrenches (rotation and position
@@ -102,11 +101,7 @@ matrix_t A_stance(cref_T_rotation_t contacts, cref_vector_t positions);
 
 /*compute polytope correspding to the stability margin given by the gravito inertial wrenchs*/
 const ProjectedCone* U_stance(cref_T_rotation_t contacts, cref_vector_t positions,
-                              cref_vector_t friction,cref_vector_t f_z_max,
-                              cref_vector_t x, cref_vector_t y);
+                              cref_vector_t friction,cref_vector_t x, cref_vector_t y);
 
-/*const ProjectedCone* U_stanceSparse(cref_T_rotation_t contacts, cref_vector_t positions,
-                              cref_vector_t friction,cref_vector_t f_z_max,
-                              cref_vector_t x, cref_vector_t y);*/
 } //namespace planner
 #endif //equilib
