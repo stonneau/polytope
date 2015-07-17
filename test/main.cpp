@@ -189,6 +189,13 @@ int main()
     init_library();
     ret+= creationTest();
     timeGeneration();
+    Eigen::Matrix<value_type,2,1> nu, x, y;
+    nu << 2, 4; x << 3, 6; y << 5, 10;
+
+    /*Eigen::Matrix<value_type,1,1> nu, x, y;
+    nu << 1; x << 1; y << 1;*/
+
+    std::cout << V_all(nu,x,y) << std::endl;
     release_library();
     return ret;
 }

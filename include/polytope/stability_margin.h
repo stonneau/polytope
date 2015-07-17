@@ -62,6 +62,7 @@ struct POLYTOPE_DLLAPI ProjectedCone
     // generate H and V representation in target
     // library format
     // wether the current wrench is achievable (static equilibirum test)
+    // TODO: lp instead of inequalities to validate a point ? this avoids the conversion
     bool IsValid(cref_vector3_t p_com, const cref_vector3_t gravity, const value_type& mass) const;
 
 private:
@@ -81,16 +82,11 @@ private:
 
 const ProjectedCone* fromGenerators(cref_matrix_t vRep);
 
-// TODO test perfo for Sparse matrix for v_all and a_stance
-/*compute V representation analiticaly for a a given set of contacts
-assumes contact is rectangle, x and y describe half length of rectangle sides.
-For each contact we have 37 extreme points by cone:
-(f_max constant) => 5 points which can take two non zero values (2⁵5)
-+ 5 0 moment points ==> 2^5 +5). Matrices are stacked diagonaly, which
-gives us a sparse matrix of size 6*nbContacts X 37*nbContacts */
-matrix_t V_all (cref_vector_t friction,
-                cref_vector_t x,
-                cref_vector_t y);
+/*16 generator rays per contact. If we set x = min(x,y),
+we then only have 8 generators*/
+matrix_t V_all (cref_vector_t frictions,
+                cref_vector_t xs,
+                cref_vector_t ys);
 
 /*compute projection matrices into GICW. Positional factors of contact wrenches (rotation and position
 of contacts are computed in world frame and stacked in a 6 X (6*nbContacts)  as follows:

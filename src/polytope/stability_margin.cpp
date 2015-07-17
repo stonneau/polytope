@@ -22,7 +22,7 @@ const vector3_t Y(0,1,0);
 const vector3_t Z(0,0,1);
 
 // number of generators per contact
-const int num_gen = 32;
+const int num_gen = 16;
 // contact dimension
 const int c_dim = 6;
 
@@ -50,53 +50,101 @@ matrix_t A_stance(cref_T_rotation_t contacts, cref_vector_t positions)
     return mat;
 }
 
-matrix_t V_all(cref_vector_t friction, cref_vector_t x,
-                     cref_vector_t y )
+matrix_t V_all3u(const value_type& nu,  const value_type& x, const value_type& y)
 {
-    const int nbContacts = x.rows();
+    matrix_t cones = matrix_t::Zero(c_dim, num_gen);
+    //setting two first rows
+    cones(0,0) = nu; cones(0,1) =-nu;
+    cones(1,2) = nu; cones(1,3) =-nu;
+    for(int i =1; i<4; ++i)
+    {
+        cones.block<2,4>(0,4*i) = cones.block<2,4>(0,0);
+    }
+    // 16 times 1
+    for(int j = 0; j<num_gen; ++j)
+    {
+        cones(2,j) = 1;
+    }
+    // -y -y -y -y -y y y y y y y y -y -y -y -y
+    value_type val = y;
+    for(int j = 0; j<cones.cols(); ++j)
+    {
+        if(j%4 == 0) val*= -1;
+        cones(3,j)=val;
+    }
+    // x x x x x x x -x -x -x -x -x -x -x -x -x
+    val = -x;
+    for(int j = 0; j<cones.cols(); ++j)
+    {
+        if(j%8 == 0) val*= -1;
+        cones(4,j)=val;
+    }
+    //setting two last rows
+
+    const value_type nu_y = nu * y;
+    const value_type nu_x=  nu * x;
+    cones(5,0) = -nu_y; cones(5,1) =  nu_y; cones(5,2) = -nu_x; cones(5,3) = nu_x;
+    cones(5,4) =  nu_y; cones(5,5) = -nu_y; cones(5,6) = -nu_x; cones(5,7) = nu_x;
+    cones.block<1,8>(5,8) = -cones.block<1,8>(5,0) ;
+    return cones;
+}
+
+/*
+A 3nu matrix has the following form, where f = friction, a = y* f and b = x*f
+ f  -f   0   0   f  -f   0   0   f  -f   0   0   f  -f   0   0
+ 0   0   f  -f   0   0   f  -f   0   0   f  -f   0   0   f  -f
+ 1   1   1   1   1   1   1   1   1   1   1   1   1   1   1   1
+-y  -y  -y  -y   y   y   y   y   y   y   y   y  -y  -y  -y  -y
+ x   x   x   x   x   x   x   x  -x  -x  -x  -x  -x  -x  -x  -x
+-a   a  -b   b   a  -a  -b   b   a  -a   b  -b  -a   a   b   b
+*/
+matrix_t V_all(cref_vector_t frictions, cref_vector_t xs,
+                     cref_vector_t ys )
+{
+    const int nbContacts = xs.rows();
     assert(y.rows() == nbContacts && friction.rows() == nbContacts);
     matrix_t cones = matrix_t::Zero(c_dim*nbContacts, num_gen*nbContacts);
-    int colid = 0;
-    for(int contact = 0; contact < nbContacts; ++contact, colid += num_gen)
+    int row = 0; int col = 0;
+    for(int contact = 0; contact < nbContacts; ++contact, row+=c_dim, col+=num_gen)
     {
-        const value_type nu_f_z = friction[contact];
-        const value_type x_f_z =  x[contact];
-        const value_type y_f_z =  y[contact];
-        Eigen::Matrix <value_type, 6, 1> plus;
-        plus[0] = nu_f_z;
-        plus[1] = nu_f_z;
-        plus[2] = 1;
-        plus[3] = y_f_z;
-        plus[4] = x_f_z;
-        plus[5] = nu_f_z;
-
-        Eigen::Matrix <value_type, 6, 1> minus = - plus; minus[2] = 1;
-        std::size_t numblocks = 32;
-        std::size_t length = 1;
-        // generating linear combination of all non 0 points
-        // first row alternates positive and negative values
-        // second row switches signs every two columns
-        // last row switches signs after 16 colums
-        // this allows to generate all combinations
-        for(int rowid=c_dim*contact; rowid<c_dim*contact+c_dim; ++rowid)
+        const value_type& nu = frictions[contact];
+        const value_type& x =  xs[contact];
+        const value_type& y =  ys[contact];
+        cones(row, col) = nu; cones(row, col+1) =-nu;
+        cones(row+1,col+2) = nu; cones(row+1,col+3) =-nu;
+        for(int i =1; i<4; ++i)
         {
-            for(std::size_t j = 0; j< numblocks; j+=2)
-            {
-                for(std::size_t col = length*j; col < length*(j+1); ++col)
-                {
-                    cones(rowid,colid+col) = plus(rowid%c_dim);
-                }
-                for(std::size_t col = length*(j+1); col < length*(j+2); ++col)
-                {
-                    cones(rowid,colid+col) = minus(rowid%c_dim);
-                }
-            }
-            if(rowid % c_dim != 1)
-            {
-                numblocks /= 2;
-                length *= 2;
-            }
+            cones.block<2,4>(row+0,col+4*i) = cones.block<2,4>(row+0,col+0);
         }
+        // 16 times 1
+        for(int j = 0; j<num_gen; ++j)
+        {
+            cones(row+2,col+j) = 1;
+        }
+        // -y -y -y -y -y y y y y y y y -y -y -y -y
+        value_type val = y;
+        for(int j = 0; j<num_gen; ++j)
+        {
+            if(j%4 == 0) val*= -1;
+            cones(row+3,col+j)=val;
+        }
+        // x x x x x x x -x -x -x -x -x -x -x -x -x
+        val = -x;
+        for(int j = 0; j<num_gen; ++j)
+        {
+            if(j%8 == 0) val*= -1;
+            cones(row+4,col+j)=val;
+        }
+        //setting two last rows
+
+        const value_type nu_y = nu * y;
+        const value_type nu_x=  nu * x;
+        cones(row+5,col+0) = -nu_y; cones(row+5,col+1) =  nu_y;
+        cones(row+5,col+2) = -nu_x; cones(row+5,col+3) =  nu_x;
+        cones(row+5,col+4) =  nu_y; cones(row+5,col+5) = -nu_y;
+        cones(row+5,col+6) = -nu_x; cones(row+5,col+7) =  nu_x;
+        cones.block<1,8>(row+5,col+8) = -cones.block<1,8>(row+5,col+0) ;
+
     }
     return cones;
 }
@@ -188,7 +236,7 @@ struct PImpl
             // get equalities and add them as complementary inequality constraints
             long elem;
             std::vector<long> eq_rows;
-            for(elem=1;elem<=b_A->linset[0];++elem)
+            for(elem=1;elem<=(long)(b_A->linset[0]);++elem)
             {
                 if (set_member(elem,b_A->linset))
                    eq_rows.push_back(elem);
