@@ -102,7 +102,7 @@ matrix_t V_all(cref_vector_t frictions, cref_vector_t xs,
                      cref_vector_t ys )
 {
     const int nbContacts = xs.rows();
-    assert(y.rows() == nbContacts && friction.rows() == nbContacts);
+    assert(ys.rows() == nbContacts && frictions.rows() == nbContacts);
     matrix_t cones = matrix_t::Zero(c_dim*nbContacts, num_gen*nbContacts);
     int row = 0; int col = 0;
     for(int contact = 0; contact < nbContacts; ++contact, row+=c_dim, col+=num_gen)

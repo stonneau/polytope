@@ -4,7 +4,12 @@ if ( UNIX )
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -std=gnu++0x")
 endif ()
 
-project(polytope)
+SET(PROJECT_NAME polytope)
+SET(PROJECT_DESCRIPTION
+   "Stability margin implementation with polytopes"
+ )
+ SET(PROJECT_URL "")
+
 
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
 set(LIBRARY_OUTPUT_PATH "${PROJECT_SOURCE_DIR}/lib/")
@@ -18,8 +23,13 @@ set(EXTERNAL_LIBRARY_DIR "${PROJECT_SOURCE_DIR}/external/lib")
 
 if ( MSVC )  
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS")
-endif ()
+endif()
 
+# Declare Headers
+SET(${PROJECT_NAME}_HEADERS
+    include/polytope/config.h
+    include/polytope/stability_margin.h
+  )
 
 find_package(Eigen3)
 if (EIGEN3_INCLUDE_DIR)
