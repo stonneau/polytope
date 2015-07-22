@@ -37,7 +37,7 @@ rotation_t skew(cref_vector3_t& x)
 
 matrix_t A_stance(cref_T_rotation_t contacts, cref_vector_t positions)
 {
-    int nbContacts = contacts.rows() / 3;
+    int nbContacts = (int)contacts.rows() / 3;
     assert(contacts.rows() % 3 == 0 && contacts.rows() == positions.rows());
     matrix_t mat = matrix_t::Zero(c_dim, nbContacts*c_dim);
     for(int i = 0; i< nbContacts; ++i)
@@ -101,7 +101,7 @@ A 3nu matrix has the following form, where f = friction, a = y* f and b = x*f
 matrix_t V_all(cref_vector_t frictions, cref_vector_t xs,
                      cref_vector_t ys )
 {
-    const int nbContacts = xs.rows();
+    const int nbContacts = (int)xs.rows();
     assert(ys.rows() == nbContacts && frictions.rows() == nbContacts);
     matrix_t cones = matrix_t::Zero(c_dim*nbContacts, num_gen*nbContacts);
     int row = 0; int col = 0;

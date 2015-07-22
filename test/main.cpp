@@ -30,7 +30,7 @@ double get_time()
     struct timeval t;
     struct timezone tzp;
     gettimeofday(&t, &tzp);
-    return t.tv_sec + t.tv_usec*1e-6;
+    return  (double)t.tv_sec +  ((double)t.tv_usec*1e-6);
 }
 #endif
 
@@ -184,7 +184,7 @@ int creationTest()
 
 int main()
 {
-    srand (time(NULL));
+    srand ((unsigned int)(time(NULL)));
     int ret = 0;
     init_library();
     ret+= creationTest();
